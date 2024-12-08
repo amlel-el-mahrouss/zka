@@ -34,7 +34,10 @@ namespace Kernel
 		auto start_y = 50;
 		auto x		 = 10;
 
-		CGDrawString("Kernel Panic!", start_y, x, panic_text);
+		if (id != RUNTIME_CHECK_BOOTSTRAP)
+			CGDrawString("Kernel Panic!", start_y, x, panic_text);
+		else
+			CGDrawString("Kernel Splash:", start_y, x, panic_text);
 		start_y += 10;
 
 		cg_fini();
@@ -68,7 +71,7 @@ namespace Kernel
 			break;
 		}
 		case RUNTIME_CHECK_BOOTSTRAP: {
-			CGDrawString("0x0000000A: Boot code has finished executing, waiting for scheduler and other cores.", start_y, x, panic_text);
+			CGDrawString("0x0000000A: Boot Code has finished running, running Kernel process...", start_y, x, panic_text);
 			return;
 		}
 		case RUNTIME_CHECK_HANDSHAKE: {
@@ -107,7 +110,10 @@ namespace Kernel
 
 	Void RecoveryFactory::Recover() noexcept
 	{
-		HAL::rt_halt();
+		while (YES)
+		{
+			HAL::rt_halt();
+		}
 	}
 
 	void ke_runtime_check(bool expr, const Char* file, const Char* line)

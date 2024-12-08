@@ -14,18 +14,11 @@
 EXTERN_C void idt_handle_gpf(Kernel::UIntPtr rsp)
 {
 	kcout << "Kernel: GPF.\r";
-	Kernel::UserProcessScheduler::The().GetCurrentProcess().Leak().Crash();
-}
-
-/// @brief Handle page fault.
-/// @param rsp
-EXTERN_C void idt_handle_pf(Kernel::UIntPtr rsp)
-{
-	kcout << "Kernel: Page Fault.\r";
-
-	kcout << "Kernel: SIGKILL set.\r";
 
 	auto process = Kernel::UserProcessScheduler::The().GetCurrentProcess();
+
+	if (!process)
+		Kernel::ke_stop(RUNTIME_CHECK_PAGE);
 
 	process.Leak().ProcessSignal.SignalIP		= 0UL;
 	process.Leak().ProcessSignal.SignalID		= SIGKILL;
@@ -36,13 +29,56 @@ EXTERN_C void idt_handle_pf(Kernel::UIntPtr rsp)
 	process.Leak().Status = Kernel::ProcessStatusKind::kFrozen;
 
 	process.Leak().Crash();
+
+	Kernel::ke_stop(RUNTIME_CHECK_POINTER);
+}
+
+/// @brief Handle page fault.
+/// @param rsp
+EXTERN_C void idt_handle_pf(Kernel::UIntPtr rsp)
+{
+	kcout << "Kernel: Page Fault.\r";
+	kcout << "Kernel: SIGKILL set.\r";
+
+	auto process = Kernel::UserProcessScheduler::The().GetCurrentProcess();
+
+	if (!process)
+		Kernel::ke_stop(RUNTIME_CHECK_PAGE);
+
+	process.Leak().ProcessSignal.SignalIP		= 0UL;
+	process.Leak().ProcessSignal.SignalID		= SIGKILL;
+	process.Leak().ProcessSignal.PreviousStatus = process.Leak().Status;
+
+	kcout << "Kernel: PRCFROZE status set..\r";
+
+	process.Leak().Status = Kernel::ProcessStatusKind::kFrozen;
+
+	process.Leak().Crash();
+
+	Kernel::ke_stop(RUNTIME_CHECK_PAGE);
 }
 
 /// @brief Handle scheduler interrupt.
 EXTERN_C void idt_handle_scheduler(Kernel::UIntPtr rsp)
 {
+	static BOOL			 is_scheduling			= NO;
+	static Kernel::Int64 try_count_before_brute = 100000UL;
+
+	while (is_scheduling)
+	{
+		--try_count_before_brute;
+
+		if (try_count_before_brute < 1)
+			break;
+	}
+
+	try_count_before_brute = 100000UL;
+	is_scheduling		   = YES;
+
 	kcout << "Kernel: Timer IRQ (Scheduler Notification).\r";
 	Kernel::UserProcessHelper::StartScheduling();
+
+	is_scheduling = NO;
 }
 
 /// @brief Handle math fault.
@@ -53,6 +89,9 @@ EXTERN_C void idt_handle_math(Kernel::UIntPtr rsp)
 
 	auto process = Kernel::UserProcessScheduler::The().GetCurrentProcess();
 
+	if (!process)
+		Kernel::ke_stop(RUNTIME_CHECK_PAGE);
+
 	process.Leak().ProcessSignal.SignalIP		= 0UL;
 	process.Leak().ProcessSignal.SignalID		= SIGKILL;
 	process.Leak().ProcessSignal.PreviousStatus = process.Leak().Status;
@@ -62,6 +101,8 @@ EXTERN_C void idt_handle_math(Kernel::UIntPtr rsp)
 	process.Leak().Status = Kernel::ProcessStatusKind::kFrozen;
 
 	process.Leak().Crash();
+
+	Kernel::ke_stop(RUNTIME_CHECK_UNEXCPECTED);
 }
 
 /// @brief Handle any generic fault.
@@ -72,6 +113,9 @@ EXTERN_C void idt_handle_generic(Kernel::UIntPtr rsp)
 
 	auto process = Kernel::UserProcessScheduler::The().GetCurrentProcess();
 
+	if (!process)
+		Kernel::ke_stop(RUNTIME_CHECK_PAGE);
+
 	process.Leak().ProcessSignal.SignalIP		= 0UL;
 	process.Leak().ProcessSignal.SignalID		= SIGKILL;
 	process.Leak().ProcessSignal.PreviousStatus = process.Leak().Status;
@@ -81,19 +125,23 @@ EXTERN_C void idt_handle_generic(Kernel::UIntPtr rsp)
 	process.Leak().Status = Kernel::ProcessStatusKind::kFrozen;
 
 	process.Leak().Crash();
+
+	Kernel::ke_stop(RUNTIME_CHECK_UNEXCPECTED);
 }
 
 EXTERN_C Kernel::Void idt_handle_breakpoint(Kernel::UIntPtr rip)
 {
 	auto process = Kernel::UserProcessScheduler::The().GetCurrentProcess();
 
-	kcout << "Kernel: Process RIP: " << Kernel::number(rip) << endl;
-	kcout << "Kernel: Process Name: " << process.Leak().Name << endl;
+	if (!process)
+		Kernel::ke_stop(RUNTIME_CHECK_PAGE);
 
+	kcout << "Kernel: Process RIP: " << Kernel::hex_number(rip) << endl;
 	kcout << "Kernel: SIGTRAP set.\r";
 
-	process.Leak().ProcessSignal.SignalIP		= rip;
-	process.Leak().ProcessSignal.SignalID		= SIGTRAP;
+	process.Leak().ProcessSignal.SignalIP = rip;
+	process.Leak().ProcessSignal.SignalID = SIGTRAP;
+
 	process.Leak().ProcessSignal.PreviousStatus = process.Leak().Status;
 
 	kcout << "Kernel: PRCFROZE status set..\r";
@@ -109,6 +157,9 @@ EXTERN_C void idt_handle_ud(Kernel::UIntPtr rsp)
 
 	auto process = Kernel::UserProcessScheduler::The().GetCurrentProcess();
 
+	if (!process)
+		Kernel::ke_stop(RUNTIME_CHECK_PAGE);
+
 	process.Leak().ProcessSignal.SignalIP		= 0UL;
 	process.Leak().ProcessSignal.SignalID		= SIGKILL;
 	process.Leak().ProcessSignal.PreviousStatus = process.Leak().Status;
@@ -118,6 +169,8 @@ EXTERN_C void idt_handle_ud(Kernel::UIntPtr rsp)
 	process.Leak().Status = Kernel::ProcessStatusKind::kFrozen;
 
 	process.Leak().Crash();
+
+	Kernel::ke_stop(RUNTIME_CHECK_UNEXCPECTED);
 }
 
 /// @brief Enter syscall from assembly.

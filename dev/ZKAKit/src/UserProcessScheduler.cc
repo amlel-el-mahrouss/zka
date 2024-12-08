@@ -52,11 +52,14 @@ namespace Kernel
 	}
 
 	/***********************************************************************************/
-	/// @brief Crashes the current process.
+	/// @brief Crashes the current process->
 	/***********************************************************************************/
 
 	Void UserProcess::Crash()
 	{
+		if (this->Status != ProcessStatusKind::kRunning)
+			return;
+
 		kcout << this->Name << ": crashed, error id: " << number(kErrorProcessFault) << endl;
 		this->Exit(kErrorProcessFault);
 	}
@@ -91,7 +94,7 @@ namespace Kernel
 	}
 
 	/***********************************************************************************/
-	/// @brief Wake process.
+	/// @brief Wake process->
 	/***********************************************************************************/
 
 	Void UserProcess::Wake(const bool should_wakeup)
@@ -117,23 +120,23 @@ namespace Kernel
 		auto ptr = mm_new_heap(sz + pad_amount, Yes, Yes);
 #endif
 
-		if (!this->MemoryHeap)
+		if (!this->ProcessMemoryHeap)
 		{
-			this->MemoryHeap = new UserProcess::UserProcessHeapList();
+			this->ProcessMemoryHeap = new UserProcess::UserProcessHeapList();
 
-			this->MemoryHeap->MemoryEntryPad  = pad_amount;
-			this->MemoryHeap->MemoryEntrySize = sz;
+			this->ProcessMemoryHeap->MemoryEntryPad	 = pad_amount;
+			this->ProcessMemoryHeap->MemoryEntrySize = sz;
 
-			this->MemoryHeap->MemoryEntry = ptr;
+			this->ProcessMemoryHeap->MemoryEntry = ptr;
 
-			this->MemoryHeap->MemoryPrev = nullptr;
-			this->MemoryHeap->MemoryNext = nullptr;
+			this->ProcessMemoryHeap->MemoryPrev = nullptr;
+			this->ProcessMemoryHeap->MemoryNext = nullptr;
 
 			return ErrorOr<VoidPtr>(ptr);
 		}
 		else
 		{
-			UserProcessHeapList* entry		= this->MemoryHeap;
+			UserProcessHeapList* entry		= this->ProcessMemoryHeap;
 			UserProcessHeapList* prev_entry = nullptr;
 
 			while (!entry)
@@ -156,7 +159,7 @@ namespace Kernel
 	}
 
 	/***********************************************************************************/
-	/// @brief Gets the name of the current process.
+	/// @brief Gets the name of the current process->
 	/***********************************************************************************/
 
 	const Char* UserProcess::GetName() noexcept
@@ -165,7 +168,7 @@ namespace Kernel
 	}
 
 	/***********************************************************************************/
-	/// @brief Gets the owner of the process.
+	/// @brief Gets the owner of the process->
 	/***********************************************************************************/
 
 	const User* UserProcess::GetOwner() noexcept
@@ -181,7 +184,7 @@ namespace Kernel
 
 	/***********************************************************************************/
 	/**
-	@brief Affinity is the time slot allowed for the process.
+	@brief Affinity is the time slot allowed for the process->
 	*/
 	/***********************************************************************************/
 
@@ -204,7 +207,7 @@ namespace Kernel
 
 		kLastExitCode = exit_code;
 
-		auto memory_heap_list = this->MemoryHeap;
+		auto memory_heap_list = this->ProcessMemoryHeap;
 
 #ifdef __ZKA_AMD64__
 		auto pd = hal_read_cr3();
@@ -266,8 +269,11 @@ namespace Kernel
 			mm_delete_heap(reinterpret_cast<VoidPtr>(this->StackReserve));
 
 		this->ProcessId = 0;
+		this->Status	= ProcessStatusKind::kFinished;
 
-		this->Status = ProcessStatusKind::kFinished;
+		--this->ProcessParentTeam->mProcessCount;
+
+		delete this;
 	}
 
 	/***********************************************************************************/
@@ -278,8 +284,7 @@ namespace Kernel
 
 	ProcessID UserProcessScheduler::Spawn(UserProcess* process)
 	{
-		if (!process ||
-			*process->Name == 0)
+		if (!process)
 		{
 			return kProcessInvalidID;
 		}
@@ -331,18 +336,25 @@ namespace Kernel
 
 		kcout << "Create stack reserve for: " << process->Name << endl;
 
-		auto pid = mTeam.mProcessList.Count();
+		ProcessID pid = mTeam.mProcessCount;
+
+		if (pid > kSchedProcessLimitPerTeam)
+			return kProcessInvalidID;
+
+		++mTeam.mProcessCount;
+
+		process->ProcessParentTeam = &mTeam;
 
 		process->ProcessId = pid;
-		process->Status	   = ProcessStatusKind::kRunning;
+		process->Status	   = ProcessStatusKind::kStarting;
 		process->PTime	   = (UIntPtr)AffinityKind::kStandard;
 
-		mTeam.mProcessList.Assign(pid, *process);
+		kcout << "Process Name: " << process->Name << endl;
+		kcout << "PID: " << number(process->ProcessId) << endl;
 
-		kcout << "Process Name: " << mTeam.mProcessList[pid].Name << endl;
-		kcout << "PID: " << number(mTeam.mProcessList[pid].ProcessId) << endl;
+		mTeam.mProcessList.Assign(pid, process);
 
-		return pid;
+		return process->ProcessId;
 	}
 
 	/***********************************************************************************/
@@ -369,7 +381,7 @@ namespace Kernel
 		if (process_id > mTeam.mProcessList.Count())
 			return No;
 
-		mTeam.mProcessList[process_id].Exit(0);
+		mTeam.mProcessList[process_id]->Exit(0);
 
 		return Yes;
 	}
@@ -415,25 +427,25 @@ namespace Kernel
 			auto process = mTeam.AsArray()[process_index];
 
 			//! check if process needs to be scheduled.
-			if (UserProcessHelper::CanBeScheduled(process))
+			if (process && UserProcessHelper::CanBeScheduled(process))
 			{
 				// Set current process header.
 				this->GetCurrentProcess() = process;
 
-				process.PTime = static_cast<Int32>(process.Affinity);
+				process->PTime = static_cast<Int32>(process->Affinity);
 
-				kcout << "Switch to '" << process.Name << "'.\r";
+				kcout << "Switch to '" << process->Name << "'.\r";
 
 				// tell helper to find a core to schedule on.
-				if (!UserProcessHelper::Switch(process.Image.fCode, &process.StackReserve[process.StackSize - 1], process.StackFrame,
-											   process.ProcessId))
+				if (!UserProcessHelper::Switch(process->Image.fCode, &process->StackReserve[process->StackSize - 1], process->StackFrame,
+											   process->ProcessId))
 				{
-					process.Crash();
+					process->Crash();
 				}
 			}
 			else
 			{
-				--process.PTime;
+				--process->PTime;
 			}
 		}
 
@@ -449,7 +461,7 @@ namespace Kernel
 
 	/// @internal
 
-	/// @brief Gets current running process.
+	/// @brief Gets current running process->
 	/// @return
 	Ref<UserProcess>& UserProcessScheduler::GetCurrentProcess()
 	{
@@ -471,20 +483,23 @@ namespace Kernel
 	/// @param process the process reference.
 	/// @retval true can be schedulded.
 	/// @retval false cannot be schedulded.
-	Bool UserProcessHelper::CanBeScheduled(const UserProcess& process)
+	Bool UserProcessHelper::CanBeScheduled(const UserProcess* process)
 	{
-		if (process.Status == ProcessStatusKind::kKilled ||
-			process.Status == ProcessStatusKind::kFinished ||
-			process.Status == ProcessStatusKind::kFrozen)
+		if (process->Status == ProcessStatusKind::kKilled ||
+			process->Status == ProcessStatusKind::kFinished ||
+			process->Status == ProcessStatusKind::kFrozen)
 			return No;
 
-		if (process.Status == ProcessStatusKind::kInvalid)
+		if (process->Status == ProcessStatusKind::kInvalid)
 			return No;
 
-		if (!process.Image.fCode)
+		if (!process->Image.fCode)
 			return No;
 
-		return process.PTime < 1;
+		if (!process->Name[0])
+			return No;
+
+		return process->PTime < 1;
 	}
 
 	/***********************************************************************************/
@@ -534,7 +549,7 @@ namespace Kernel
 				////////////////////////////////////////////////////////////
 
 				auto prev_ptime										 = HardwareThreadScheduler::The()[index].Leak()->fPTime;
-				HardwareThreadScheduler::The()[index].Leak()->fPTime = UserProcessScheduler::The().CurrentTeam().AsArray()[new_pid].PTime;
+				HardwareThreadScheduler::The()[index].Leak()->fPTime = UserProcessScheduler::The().CurrentTeam().AsArray()[new_pid]->PTime;
 				Bool ret											 = HardwareThreadScheduler::The()[index].Leak()->Switch(image_ptr, stack, frame_ptr, new_pid);
 
 				////////////////////////////////////////////////////////////

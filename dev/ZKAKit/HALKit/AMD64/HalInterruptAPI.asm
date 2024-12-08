@@ -78,6 +78,7 @@ __ZKA_INT_3:
     mov rax, idt_handle_breakpoint
 
     lea rcx, [rel __ZKA_INT_3_GET_RIP]
+    sub rcx, 16
     mov [rcx], rcx
 
     call rax
@@ -201,8 +202,7 @@ __ZKA_INT_32:
 
     push rax
     mov rcx, rsp
-    mov rax, idt_handle_scheduler
-    call rax
+    call idt_handle_scheduler
     pop rax
 
     sti

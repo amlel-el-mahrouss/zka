@@ -185,7 +185,8 @@ namespace Kernel
 		};
 
 		UserProcessSignal	 ProcessSignal;
-		UserProcessHeapList* MemoryHeap{nullptr};
+		UserProcessHeapList* ProcessMemoryHeap{nullptr};
+		UserProcessTeam*	 ProcessParentTeam;
 
 		VoidPtr VMRegister{0UL};
 
@@ -254,19 +255,20 @@ namespace Kernel
 	class UserProcessTeam final
 	{
 	public:
-		explicit UserProcessTeam() = default;
-		~UserProcessTeam()		   = default;
+		explicit UserProcessTeam();
+		~UserProcessTeam() = default;
 
 		ZKA_COPY_DEFAULT(UserProcessTeam);
 
-		Array<UserProcess, kSchedProcessLimitPerTeam>& AsArray();
-		Ref<UserProcess>&							   AsRef();
-		ProcessID&									   Id() noexcept;
+		Array<UserProcess*, kSchedProcessLimitPerTeam>& AsArray();
+		Ref<UserProcess>&								AsRef();
+		ProcessID&										Id() noexcept;
 
 	public:
-		Array<UserProcess, kSchedProcessLimitPerTeam> mProcessList;
-		Ref<UserProcess>							  mCurrentProcess;
-		ProcessID									  mTeamId{0};
+		Array<UserProcess*, kSchedProcessLimitPerTeam> mProcessList;
+		Ref<UserProcess>							   mCurrentProcess;
+		ProcessID									   mTeamId{0};
+		ProcessID									   mProcessCount{0};
 	};
 
 	using UserProcessPtr = UserProcess*;
@@ -316,7 +318,7 @@ namespace Kernel
 	{
 	public:
 		STATIC Bool Switch(VoidPtr image_ptr, UInt8* stack_ptr, HAL::StackFramePtr frame_ptr, const PID& new_pid);
-		STATIC Bool CanBeScheduled(const UserProcess& process);
+		STATIC Bool CanBeScheduled(const UserProcess* process);
 		STATIC ErrorOr<PID> TheCurrentPID();
 		STATIC SizeT		StartScheduling();
 	};
