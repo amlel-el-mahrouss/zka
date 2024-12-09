@@ -18,11 +18,11 @@ A Win32 compatibility layer is available as well as ML Kits support.
 
 ### Installation
 
-Clone repository:
+Clone the repository:
 
 ```
+git clone git@github.com:amlel-el-mahrouss/mdk.git
 git clone git@github.com:amlel-el-mahrouss/zka.git
-cd zka-dev
 ```
 
 </br>
